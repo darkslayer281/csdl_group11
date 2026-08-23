@@ -1,0 +1,83 @@
+erDiagram
+    users {
+        UUID id PK
+        VARCHAR name
+        VARCHAR email UK
+        VARCHAR phone
+        TIMESTAMPTZ created_at
+    }
+    vehicles {
+        UUID id PK
+        UUID user_id FK
+        VARCHAR plate_number
+        VARCHAR connector_type
+        NUMERIC battery_capacity_kwh
+    }
+    stations {
+        UUID id PK
+        VARCHAR name
+        VARCHAR address
+        NUMERIC latitude
+        NUMERIC longitude
+    }
+    slots {
+        UUID id PK
+        UUID station_id FK
+        VARCHAR slot_number
+        VARCHAR connector_type
+        NUMERIC max_power_kw
+        VARCHAR status
+    }
+    reservations {
+        UUID id PK
+        UUID user_id FK
+        UUID vehicle_id FK
+        UUID slot_id FK
+        TIMESTAMPTZ start_time
+        TIMESTAMPTZ end_time
+        VARCHAR status
+        TIMESTAMPTZ created_at
+    }
+    pricing_rules {
+        UUID id PK
+        UUID station_id FK
+        VARCHAR time_band
+        TIMESTAMPTZ valid_from
+        TIMESTAMPTZ valid_to
+        NUMERIC rate_per_kwh
+    }
+    charging_sessions {
+        UUID id PK
+        UUID reservation_id FK, UK
+        TIMESTAMPTZ actual_start
+        TIMESTAMPTZ actual_end
+        NUMERIC energy_kwh
+    }
+    session_rate_segments {
+        UUID id PK
+        UUID session_id FK
+        UUID pricing_rule_id FK
+        TIMESTAMPTZ segment_start
+        TIMESTAMPTZ segment_end
+        NUMERIC energy_kwh
+        NUMERIC rate_per_kwh_at_time
+        NUMERIC cost
+    }
+    invoices {
+        UUID id PK
+        UUID session_id FK, UK
+        NUMERIC total_amount
+        VARCHAR payment_status
+        TIMESTAMPTZ issued_at
+        TIMESTAMPTZ paid_at
+    }
+    users ||--o{ vehicles : owns
+    users ||--o{ reservations : makes
+    vehicles ||--o{ reservations : uses
+    stations ||--o{ slots : contains
+    slots ||--o{ reservations : receives
+    stations ||--o{ pricing_rules : defines
+    reservations ||--o| charging_sessions : has
+    charging_sessions ||--o{ session_rate_segments : contains
+    pricing_rules ||--o{ session_rate_segments : applies_to
+    charging_sessions ||--o| invoices : generates
