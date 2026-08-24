@@ -1,4 +1,4 @@
-# csdl_group11
+# CSDL_GROUP11
 Smart City Ev Charging &amp; Parking Management
 
 How we use AI:
