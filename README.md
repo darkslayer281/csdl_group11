@@ -21,7 +21,7 @@
 
 Dự án xây dựng cơ sở dữ liệu quản lý **trạm sạc xe điện và bãi đỗ xe trong thành phố thông minh**. Hệ thống quản lý khách hàng (cá nhân / doanh nghiệp) cùng phương tiện của họ, các trạm sạc và cổng sạc (AC và DC nhanh), bảng giá điện theo khung giờ, quy trình **đặt chỗ → phiên sạc → hóa đơn**, và nhật ký thay đổi phục vụ kiểm toán.
 
-**Các thực thể chính:** `KHACH_HANG`, `PHUONG_TIEN`, `TRAM_SAC`, `CONG_SAC` (chuyên biệt hóa thành `CONG_AC` và `CONG_DC_NHANH`), `BANG_GIA`, `DAT_CHO`, `PHIEN_SAC`, `HOA_DON`, `AUDIT_LOG`.
+**Các thực thể chính:** `KHACH_HANG`, `PHUONG_TIEN`, `TRAM_SAC`, `CONG_SAC` (chuyên biệt hóa thành `CONG_AC` và `CONG_DC_NHANH`), `BANG_GIA`, `DAT_CHO`, `PHIEN_SAC`, `HOA_DON`, `NGAY_LE`, `HOA_DON_KHUNG_GIA` và `AUDIT_LOG`.
 
 **Mục tiêu của CSDL:**
 
@@ -37,11 +37,11 @@ Dự án xây dựng cơ sở dữ liệu quản lý **trạm sạc xe điện v
 | ---- | ---- | ------- |
 | Khách hàng & xe | `KHACH_HANG`, `PHUONG_TIEN` | Một khách có nhiều xe; `SDT`, `Email`, `BienSo` là duy nhất |
 | Hạ tầng sạc | `TRAM_SAC`, `CONG_SAC`, `CONG_AC`, `CONG_DC_NHANH` | Chuyên biệt hóa kiểu *disjoint*: một cổng chỉ thuộc `CONG_AC` hoặc `CONG_DC_NHANH` |
-| Giá | `BANG_GIA` | Đơn giá kWh theo trạm, loại ngày, khung giờ; khung giờ không được chồng lấn |
+| Giá | `BANG_GIA`, `NGAY_LE`, `HOA_DON_KHUNG_GIA` | Giá theo trạm, loại ngày và khung giờ; chi tiết hóa đơn lưu điện năng/chi phí theo từng mức giá |
 | Nghiệp vụ | `DAT_CHO`, `PHIEN_SAC`, `HOA_DON` | `DAT_CHO` 1:1 `PHIEN_SAC` 1:1 `HOA_DON` |
 | Kiểm toán | `AUDIT_LOG` | Lưu giá trị cũ/mới (JSON) khi đổi bảng giá hoặc trạng thái cổng |
 
-**Tổng cộng:** 11 bảng, 5 view, 16 trigger, 10 index tự định nghĩa.
+**Thành phần chính:** 13 bảng, 5 view, 23 trigger và 10 index tự định nghĩa (theo script DDL).
 
 ### View
 
@@ -50,7 +50,7 @@ Dự án xây dựng cơ sở dữ liệu quản lý **trạm sạc xe điện v
 | `v_cong_sac_chi_tiet` | Gộp lớp cha `CONG_SAC` với 2 lớp con để lấy nhóm cổng và công suất |
 | `v_cong_dang_trong` | Các cổng đang trống tại thời điểm hiện tại |
 | `v_phien_sac_thoi_luong` | Thời lượng đặt chỗ và thời lượng sạc thực tế (thuộc tính dẫn xuất, không lưu) |
-| `v_hoa_don_chi_tiet` | Hóa đơn kèm khách, xe, trạm, cổng và mức giá áp dụng |
+| `v_hoa_don_chi_tiet` | Hóa đơn kèm khách, xe, trạm, cổng và chi tiết các mức giá áp dụng |
 | `v_doanh_thu_tram` | Số hóa đơn, tổng kWh, tổng doanh thu theo trạm |
 
 ### Ràng buộc nghiệp vụ được cài đặt bằng trigger
@@ -75,7 +75,7 @@ Hệ thống có 3 vai trò (BR24, BR25, BR26, BR28), cài đặt trong `5_2_rba
 | Vai trò | Quyền chính |
 | ------- | ----------- |
 | `role_admin` | `SELECT`, `INSERT`, `UPDATE` trên các bảng nghiệp vụ, **không có `DELETE`** (BR28). `AUDIT_LOG` chỉ được đọc, chỉ trigger mới ghi được nên nhật ký không sửa được |
-| `role_operator` | Chỉ đọc dữ liệu thuộc các trạm được giao qua view `v_op_cong_sac`, `v_op_dat_cho`, `v_op_hoa_don`; chỉ được `UPDATE` cột `TrangThaiDat` của đặt chỗ thuộc trạm mình; chỉ đọc `BANG_GIA` |
+| `role_operator` | Chỉ đọc dữ liệu thuộc trạm được giao qua các view `v_op_*`; xác nhận/hủy đặt chỗ và đổi trạng thái cổng qua stored procedure trong phạm vi trạm; chỉ đọc `BANG_GIA` |
 | `role_customer` | Đọc thông tin công khai (`TRAM_SAC`, `BANG_GIA`, `v_cong_dang_trong`) và dữ liệu của chính mình qua `v_kh_phuong_tien`, `v_kh_dat_cho`, `v_kh_hoa_don`; **không ghi trực tiếp vào bảng**, chỉ đặt/hủy chỗ qua thủ tục `sp_khach_dat_cho` và `sp_khach_huy_dat_cho` |
 
 **Cách xác định phạm vi dữ liệu:** hàm `fn_ma_kh_hien_tai()` và `fn_ds_tram_hien_tai()` suy ra phạm vi từ tên tài khoản đang kết nối (hàm `USER()`), nên người dùng không thể giả mạo bằng `SET @biến`. Quy ước đặt tên tài khoản:
@@ -85,7 +85,7 @@ Hệ thống có 3 vai trò (BR24, BR25, BR26, BR28), cài đặt trong `5_2_rba
 
 Các thủ tục đặt/hủy chỗ chạy với `SQL SECURITY DEFINER` và vẫn đi qua các trigger nghiệp vụ (BR7/BR8, BR10, BR27). Ngoài ra `5_2_rbac.sql` tạo lại 3 trigger ghi nhật ký (`trg_bang_gia_ai`, `trg_bang_gia_au`, `trg_cong_sac_au`) để dùng `USER()` thay cho `CURRENT_USER()`, vì `CURRENT_USER()` trong trigger trả về người định nghĩa trigger (root) chứ không phải người đang thao tác.
 
-**Tài khoản demo:** `admin_demo`, `op_1`, `op_2-3`, `kh_1`, `kh_2`, `kh_3` (tất cả `@localhost`). Mật khẩu demo ghi trong phần đầu file `5_2_rbac_tests.sql`; **bắt buộc đổi khi triển khai thật**.
+**Tài khoản demo:** `admin_demo`, `op_1`, `op_2-3`, `kh_1`, `kh_2`, `kh_3` (tất cả `@localhost`). Mật khẩu demo được khai báo trong `5_2_rbac.sql`; đây chỉ là thông tin minh họa và **phải thay đổi trước khi triển khai thực tế**.
 
 ## 4. Cấu trúc repo
 
@@ -94,7 +94,7 @@ Các thủ tục đặt/hủy chỗ chạy với `SQL SECURITY DEFINER` và vẫ
 | `4_1_ddl_script.sql` | Script tạo cấu trúc CSDL (DDL): database, bảng, index, view, trigger |
 | `4_2a_mock_data.sql` | Dữ liệu mẫu (hơn 12.000 dòng lệnh) |
 | `4_2b_queries_and_performance.sql` | 13 truy vấn nâng cao và các test hiệu năng bằng `EXPLAIN ANALYZE` |
-| `5_1_constraint_tests.sql` | 33 test case chứng minh ràng buộc và trigger chặn dữ liệu sai |
+| `5_1_constraint_tests.sql` | Bộ test kiểm tra ràng buộc và trigger; báo cáo tổng hợp 46 test case (T01–T46) |
 | `5_2_rbac.sql` | Phân quyền theo vai trò (RBAC): role, view giới hạn phạm vi, thủ tục, GRANT, tài khoản demo |
 | `5_2_rbac_tests.sql` | Kịch bản kiểm thử phân quyền, chạy bằng từng tài khoản demo |
 | `Project_Report_Phase1.pdf` | Báo cáo giai đoạn 1 |
@@ -185,13 +185,13 @@ Một số truy vấn dùng biến phiên: `@now_demo = '2026-10-21 12:00:00'` (
 
 ### Kiểm thử ràng buộc – `5_1_constraint_tests.sql`
 
-Chạy **sau** `4_1` và `4_2a`. File gồm 33 test case (T01–T33); mỗi test in tên rồi thực hiện một thao tác sai, **kỳ vọng MySQL báo lỗi**:
+Chạy **sau** `4_1` và `4_2a`. Báo cáo mô tả 46 test case (T01–T46); các test kiểm tra thao tác sai phải bị từ chối, cùng với một số test đối chứng hợp lệ:
 
 | Nhóm | Test | Nội dung |
 | ---- | ---- | -------- |
 | A – Ràng buộc khai báo | T01–T16 | `UNIQUE` (SĐT, biển số, 1:1 phiên–hóa đơn), `CHECK` (pin, kinh/vĩ độ, khung giờ, đơn giá, kWh, tổng tiền, thời gian), `NOT NULL`, `ENUM`, khóa ngoại và `ON DELETE RESTRICT` |
-| B – Trigger | T17–T32 | BR10 (trùng lịch), BR7/BR8 (xe không thuộc khách), BR27 (cổng bảo trì / ngưng), BR15, BR3, BR18, chuyên biệt hóa EER, BR28 (cấm xóa cứng). T18 là test đối chứng: đặt chỗ sát biên giờ vẫn **hợp lệ** |
-| C – Hành vi tự động | T33 | Kết thúc phiên sạc thì đặt chỗ chuyển `Completed` và cổng về `Available` |
+| B – Trigger | Theo mã test trong script | Kiểm tra BR10 (trùng lịch), BR7/BR8 (xe không thuộc khách), BR27 (cổng bảo trì/ngưng), BR15, BR3, BR18, chuyên biệt hóa EER và BR28 (bảo toàn lịch sử) |
+| Hành vi tự động | Theo mã test trong script | Kiểm tra cập nhật trạng thái đặt chỗ/cổng khi phiên sạc kết thúc |
 
 Các test thao tác thành công đều được bọc trong `START TRANSACTION ... ROLLBACK` nên không làm thay đổi dữ liệu. Vì phần lớn test cố ý gây lỗi, hãy chạy script theo một trong hai cách để nó không dừng ở lỗi đầu tiên:
 
@@ -209,7 +209,7 @@ Chạy **sau** `5_2_rbac.sql`. Mỗi khối lệnh phải được chạy bằng
 | --------- | ---- | --------------- |
 | `kh_1` (khách hàng) | R01–R13 | Chỉ thấy đặt chỗ và hóa đơn của mình; đọc bảng gốc, ghi trực tiếp, xóa, đọc `AUDIT_LOG` đều bị từ chối (lỗi 1142); đặt chỗ qua thủ tục bị trigger chặn khi trùng giờ hoặc xe không thuộc khách; không hủy được đặt chỗ của người khác; không giả mạo được phạm vi bằng `SET @ma_kh` |
 | `kh_3` (khách hàng) | – | Chỉ thấy đặt chỗ 18, không thấy đặt chỗ 17 của khách khác |
-| `op_1` (nhân viên trạm 1) | O01–O07 | Chỉ thấy cổng và đặt chỗ của trạm 1; cập nhật trạng thái đặt chỗ của trạm mình thành công, đặt chỗ của trạm khác ảnh hưởng 0 dòng; sửa cột khác (lỗi 1143), sửa bảng giá, đổi trạng thái cổng, đọc khách hàng đều bị từ chối |
+| `op_1` (nhân viên trạm 1) | O01–O07 | Chỉ thấy dữ liệu trong phạm vi trạm 1; xử lý đặt chỗ qua stored procedure; không được cập nhật trực tiếp view/bảng, sửa bảng giá, đổi trạng thái cổng trực tiếp hoặc đọc dữ liệu khách hàng |
 | `op_2-3` (nhân viên trạm 2, 3) | O08 | Không thấy đặt chỗ của trạm 1 |
 | `admin_demo` (quản trị) | A01–A05 | Sửa bảng giá và đổi trạng thái cổng thành công và được ghi vào `AUDIT_LOG` đúng tên tài khoản; `DELETE` và sửa / ghi `AUDIT_LOG` bị từ chối |
 | `root` | V01–V02 | Thu hồi quyền (`REVOKE`) rồi kiểm tra lại: tài khoản bị mất quyền ngay; sau đó cấp lại quyền bằng `GRANT` |
